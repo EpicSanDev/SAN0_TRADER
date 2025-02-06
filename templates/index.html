@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        .card {
+            margin-bottom: 20px;
+        }
+        .profit {
+            color: green;
+        }
+        .loss {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <h1 class="my-4">Trading Bot Dashboard</h1>
+        
+        <!-- Compte et Statistiques -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Informations du compte
+                    </div>
+                    <div class="card-body" id="account-info">
+                        Chargement...
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Statistiques de trading
+                    </div>
+                    <div class="card-body" id="trading-stats">
+                        Chargement...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graphique -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        Graphique
+                        <select id="symbol-select" class="float-end">
+                            <option value="EURUSD">EURUSD</option>
+                            <option value="GBPUSD">GBPUSD</option>
+                            <option value="USDJPY">USDJPY</option>
+                        </select>
+                    </div>
+                    <div class="card-body">
+                        <div id="price-chart">Chargement...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Positions ouvertes -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        Positions ouvertes
+                    </div>
+                    <div class="card-body">
+                        <div id="positions-table">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticket</th>
+                                        <th>Symbole</th>
+                                        <th>Type</th>
+                                        <th>Volume</th>
+                                        <th>Prix d'ouverture</th>
+                                        <th>Prix actuel</th>
+                                        <th>SL</th>
+                                        <th>TP</th>
+                                        <th>Profit</th>
+                                        <th>Temps</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="positions-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contrôles manuels -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        Placer un ordre
+                    </div>
+                    <div class="card-body">
+                        <form id="order-form" class="row g-3">
+                            <div class="col-md-3">
+                                <label for="order-symbol" class="form-label">Symbole</label>
+                                <select class="form-control" id="order-symbol" required>
+                                    <option value="EURUSD">EURUSD</option>
+                                    <option value="GBPUSD">GBPUSD</option>
+                                    <option value="USDJPY">USDJPY</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="order-type" class="form-label">Type</label>
+                                <select class="form-control" id="order-type" required>
+                                    <option value="BUY">ACHAT</option>
+                                    <option value="SELL">VENTE</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="order-volume" class="form-label">Volume</label>
+                                <input type="number" class="form-control" id="order-volume" step="0.01" min="0.01" value="0.01" required>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="order-sl" class="form-label">Stop Loss</label>
+                                <input type="number" class="form-control" id="order-sl" step="0.0001">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="order-tp" class="form-label">Take Profit</label>
+                                <input type="number" class="form-control" id="order-tp" step="0.0001">
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">Placer l'ordre</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historique des trades -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        Historique des trades
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Symbole</th>
+                                    <th>Type</th>
+                                    <th>Volume</th>
+                                    <th>Prix entrée</th>
+                                    <th>Prix sortie</th>
+                                    <th>Profit</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateAccountInfo() {
+            $.get('/api/account', function(data) {
+                if (data) {
+                    $('#account-info').html(`
+                        <p>Balance: ${data.balance.toFixed(2)}</p>
+                        <p>Equity: ${data.equity.toFixed(2)}</p>
+                        <p>Margin: ${data.margin.toFixed(2)}</p>
+                        <p>Free Margin: ${data.free_margin.toFixed(2)}</p>
+                        <p>Margin Level: ${data.margin_level?.toFixed(2) || 'N/A'}%</p>
+                        <p class="${data.profit >= 0 ? 'profit' : 'loss'}">
+                            Profit: ${data.profit.toFixed(2)}
+                        </p>
+                    `);
+                }
+            });
+        }
+
+        function updatePositions() {
+            $.get('/api/positions', function(data) {
+                let html = '';
+                data.forEach(position => {
+                    html += `
+                        <tr>
+                            <td>${position.ticket}</td>
+                            <td>${position.symbol}</td>
+                            <td>${position.type}</td>
+                            <td>${position.volume}</td>
+                            <td>${position.open_price.toFixed(5)}</td>
+                            <td>${position.current_price.toFixed(5)}</td>
+                            <td>${position.sl?.toFixed(5) || '-'}</td>
+                            <td>${position.tp?.toFixed(5) || '-'}</td>
+                            <td class="${position.profit >= 0 ? 'profit' : 'loss'}">
+                                ${position.profit.toFixed(2)}
+                            </td>
+                            <td>${position.time}</td>
+                        </tr>
+                    `;
+                });
+                $('#positions-body').html(html || '<tr><td colspan="10">Aucune position ouverte</td></tr>');
+            });
+        }
+
+        function updateChart() {
+            const symbol = $('#symbol-select').val();
+            $.get(`/api/chart/${symbol}`, function(data) {
+                if (data.chart) {
+                    Plotly.newPlot('price-chart', JSON.parse(data.chart));
+                }
+            });
+        }
+
+        function updateStats() {
+            $.get('/api/stats', function(data) {
+                if (data) {
+                    $('#trading-stats').html(`
+                        <p>Trades totaux: ${data.total_trades}</p>
+                        <p>Trades gagnants: ${data.winning_trades}</p>
+                        <p>Trades perdants: ${data.losing_trades}</p>
+                        <p>Win Rate: ${data.win_rate.toFixed(2)}%</p>
+                        <p>Profit total: ${data.total_profit.toFixed(2)}</p>
+                        <p>Plus grand gain: ${data.largest_win.toFixed(2)}</p>
+                        <p>Plus grande perte: ${data.largest_loss.toFixed(2)}</p>
+                        <p>Gain moyen: ${data.average_win.toFixed(2)}</p>
+                        <p>Perte moyenne: ${data.average_loss.toFixed(2)}</p>
+                        <p>Facteur de profit: ${data.profit_factor.toFixed(2)}</p>
+                    `);
+                }
+            });
+        }
+
+        function updateHistory() {
+            $.get('/api/history', function(data) {
+                let html = '';
+                data.forEach(trade => {
+                    html += `
+                        <tr>
+                            <td>${trade.close_time}</td>
+                            <td>${trade.symbol}</td>
+                            <td>${trade.type}</td>
+                            <td>${trade.volume}</td>
+                            <td>${trade.open_price.toFixed(5)}</td>
+                            <td>${trade.close_price.toFixed(5)}</td>
+                            <td class="${trade.profit >= 0 ? 'profit' : 'loss'}">
+                                ${trade.profit.toFixed(2)}
+                            </td>
+                        </tr>
+                    `;
+                });
+                $('#history-body').html(html || '<tr><td colspan="7">Aucun historique disponible</td></tr>');
+            });
+        }
+
+        // Gestion du formulaire d'ordre
+        $('#order-form').submit(function(e) {
+            e.preventDefault();
+            const orderData = {
+                symbol: $('#order-symbol').val(),
+                type: $('#order-type').val(),
+                volume: parseFloat($('#order-volume').val()),
+                sl: parseFloat($('#order-sl').val()) || null,
+                tp: parseFloat($('#order-tp').val()) || null
+            };
+
+            $.post('/api/order', orderData, function(response) {
+                if (response.success) {
+                    alert('Ordre placé avec succès !');
+                    updatePositions();
+                } else {
+                    alert('Erreur : ' + response.error);
+                }
+            });
+        });
+
+        // Mise à jour automatique
+        function startAutoUpdate() {
+            // Mise à jour initiale
+            updateAccountInfo();
+            updatePositions();
+            updateChart();
+            updateStats();
+            updateHistory();
+
+            // Mise à jour périodique
+            setInterval(updateAccountInfo, 5000);      // Chaque 5 secondes
+            setInterval(updatePositions, 5000);        // Chaque 5 secondes
+            setInterval(updateChart, 30000);           // Chaque 30 secondes
+            setInterval(updateStats, 60000);           // Chaque minute
+            setInterval(updateHistory, 60000);         // Chaque minute
+        }
+
+        // Event listeners
+        $(document).ready(function() {
+            startAutoUpdate();
+
+            // Mise à jour du graphique lors du changement de symbole
+            $('#symbol-select').change(function() {
+                updateChart();
+            });
+        });
+
+        // Gestion du redimensionnement de la fenêtre
+        window.addEventListener('resize', function() {
+            var chart = document.getElementById('price-chart');
+            if (chart && chart.data) {
+                Plotly.Plots.resize(chart);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+MetaTrader5==5.0.45
+pandas==2.0.3
+openai==0.27.8
+numpy==1.24.3
+python-telegram-bot==13.7
+scikit-learn==1.2.2
+joblib==1.2.0
+
+aiohttp==3.8.4
