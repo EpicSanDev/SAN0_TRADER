@@ -8,21 +8,258 @@
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
+        :root {
+            --primary-color: #2196F3;
+            --success-color: #4CAF50;
+            --danger-color: #F44336;
+            --warning-color: #FFC107;
+            --bg-dark: #1a1a1a;
+            --card-dark: #2d2d2d;
+            --text-dark: #ffffff;
+        }
+
+        body {
+            transition: background-color 0.3s ease;
+        }
+
+        body.dark-mode {
+            background-color: var(--bg-dark);
+            color: var(--text-dark);
+        }
+
+        .dark-mode .card {
+            background-color: var(--card-dark);
+            border-color: #404040;
+        }
+
+        .dark-mode .table {
+            color: var(--text-dark);
+        }
+
+        .dark-mode .card-header {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid #404040;
+        }
+
         .card {
             margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
         }
+
+        .card:hover {
+            transform: translateY(-2px);
+        }
+
+        .card-header {
+            font-weight: 600;
+            padding: 1rem;
+        }
+
         .profit {
-            color: green;
+            color: var(--success-color);
+            font-weight: bold;
         }
+
         .loss {
-            color: red;
+            color: var(--danger-color);
+            font-weight: bold;
+        }
+
+        .loading {
+            position: relative;
+            min-height: 100px;
+        }
+
+        .loading::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            transform: translate(-50%, -50%);
+        }
+
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .progress {
+            height: 20px;
+            border-radius: 10px;
+            background-color: rgba(0,0,0,0.1);
+        }
+
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+
+        #alerts-container {
+            max-height: 200px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        #alerts-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #alerts-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        #alerts-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        .form-control, .btn {
+            border-radius: 8px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            border: none;
+            padding: 8px 16px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: #1976D2;
+            transform: translateY(-1px);
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 8px;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            background: #fff;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .dark-mode .theme-toggle {
+            background: var(--card-dark);
+            border-color: #404040;
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            padding: 10px;
+            border-radius: 8px;
+            background-color: rgba(244, 67, 54, 0.1);
+            margin: 10px 0;
+        }
+
+        .table td, .table th {
+            vertical-align: middle;
+        }
+
+        .badge {
+            padding: 6px 12px;
+            border-radius: 12px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .status-active {
+            background-color: var(--success-color);
+        }
+
+        .status-inactive {
+            background-color: var(--danger-color);
         }
     </style>
 </head>
 <body>
+    <button class="theme-toggle" onclick="toggleTheme()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+    </button>
+
     <div class="container-fluid">
         <h1 class="my-4">Trading Bot Dashboard</h1>
         
+        <!-- Spreads et Conditions de Marché -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Spreads en Temps Réel</span>
+                        <span class="status-indicator status-active" title="Mise à jour en temps réel"></span>
+                    </div>
+                    <div class="card-body">
+                        <div id="spreads-table" class="loading">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Symbole</th>
+                                        <th>Spread Actuel</th>
+                                        <th>Spread Max</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="spreads-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Conditions de Marché</span>
+                        <span class="status-indicator status-active" title="Mise à jour en temps réel"></span>
+                    </div>
+                    <div class="card-body">
+                        <div id="market-conditions" class="loading">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Symbole</th>
+                                        <th>Volatilité</th>
+                                        <th>Tendance</th>
+                                        <th>Volume</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="market-conditions-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Compte et Statistiques -->
         <div class="row">
             <div class="col-md-6">
@@ -30,8 +267,7 @@
                     <div class="card-header">
                         Informations du compte
                     </div>
-                    <div class="card-body" id="account-info">
-                        Chargement...
+                    <div class="card-body loading" id="account-info">
                     </div>
                 </div>
             </div>
@@ -40,8 +276,47 @@
                     <div class="card-header">
                         Statistiques de trading
                     </div>
-                    <div class="card-body" id="trading-stats">
-                        Chargement...
+                    <div class="card-body loading" id="trading-stats">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Charts -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Performance Journalière
+                    </div>
+                    <div class="card-body loading">
+                        <div id="daily-performance-chart"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Distribution des Trades
+                    </div>
+                    <div class="card-body loading">
+                        <div id="trade-distribution-chart"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alertes et Notifications -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Alertes et Notifications</span>
+                        <span class="badge bg-danger" id="alerts-count">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="alerts-container" class="loading">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -51,16 +326,16 @@
         <div class="row">
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header">
-                        Graphique
-                        <select id="symbol-select" class="float-end">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Graphique</span>
+                        <select id="symbol-select" class="form-select" style="width: auto;">
                             <option value="EURUSD">EURUSD</option>
                             <option value="GBPUSD">GBPUSD</option>
                             <option value="USDJPY">USDJPY</option>
                         </select>
                     </div>
                     <div class="card-body">
-                        <div id="price-chart">Chargement...</div>
+                        <div id="price-chart" class="loading"></div>
                     </div>
                 </div>
             </div>
@@ -74,7 +349,7 @@
                         Positions ouvertes
                     </div>
                     <div class="card-body">
-                        <div id="positions-table">
+                        <div id="positions-table" class="table-responsive loading">
                             <table class="table">
                                 <thead>
                                     <tr>
@@ -110,7 +385,7 @@
                         <form id="order-form" class="row g-3">
                             <div class="col-md-3">
                                 <label for="order-symbol" class="form-label">Symbole</label>
-                                <select class="form-control" id="order-symbol" required>
+                                <select class="form-select" id="order-symbol" required>
                                     <option value="EURUSD">EURUSD</option>
                                     <option value="GBPUSD">GBPUSD</option>
                                     <option value="USDJPY">USDJPY</option>
@@ -118,7 +393,7 @@
                             </div>
                             <div class="col-md-2">
                                 <label for="order-type" class="form-label">Type</label>
-                                <select class="form-control" id="order-type" required>
+                                <select class="form-select" id="order-type" required>
                                     <option value="BUY">ACHAT</option>
                                     <option value="SELL">VENTE</option>
                                 </select>
@@ -136,7 +411,10 @@
                                 <input type="number" class="form-control" id="order-tp" step="0.0001">
                             </div>
                             <div class="col-12">
-                                <button type="submit" class="btn btn-primary">Placer l'ordre</button>
+                                <button type="submit" class="btn btn-primary">
+                                    <span class="submit-text">Placer l'ordre</span>
+                                    <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -145,28 +423,30 @@
         </div>
 
         <!-- Historique des trades -->
-        <div class="row mt-4">
+        <div class="row mt-4 mb-4">
             <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         Historique des trades
                     </div>
                     <div class="card-body">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Symbole</th>
-                                    <th>Type</th>
-                                    <th>Volume</th>
-                                    <th>Prix entrée</th>
-                                    <th>Prix sortie</th>
-                                    <th>Profit</th>
-                                </tr>
-                            </thead>
-                            <tbody id="history-body">
-                            </tbody>
-                        </table>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Symbole</th>
+                                        <th>Type</th>
+                                        <th>Volume</th>
+                                        <th>Prix entrée</th>
+                                        <th>Prix sortie</th>
+                                        <th>Profit</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-body" class="loading">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -174,32 +454,331 @@
     </div>
 
     <script>
-        function updateAccountInfo() {
-            $.get('/api/account', function(data) {
-                if (data) {
-                    $('#account-info').html(`
-                        <p>Balance: ${data.balance.toFixed(2)}</p>
-                        <p>Equity: ${data.equity.toFixed(2)}</p>
-                        <p>Margin: ${data.margin.toFixed(2)}</p>
-                        <p>Free Margin: ${data.free_margin.toFixed(2)}</p>
-                        <p>Margin Level: ${data.margin_level?.toFixed(2) || 'N/A'}%</p>
-                        <p class="${data.profit >= 0 ? 'profit' : 'loss'}">
-                            Profit: ${data.profit.toFixed(2)}
-                        </p>
-                    `);
+        // Theme management
+        function toggleTheme() {
+            document.body.classList.toggle('dark-mode');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            localStorage.setItem('darkMode', isDarkMode);
+            updateChartTheme();
+        }
+
+        function initTheme() {
+            const isDarkMode = localStorage.getItem('darkMode') === 'true';
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+                updateChartTheme();
+            }
+        }
+
+        function updateChartTheme() {
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            const chartConfig = {
+                paper_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                plot_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                font: {
+                    color: isDarkMode ? '#fff' : '#000'
+                },
+                xaxis: {
+                    gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                },
+                yaxis: {
+                    gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                }
+            };
+
+            const charts = ['daily-performance-chart', 'trade-distribution-chart', 'price-chart'];
+            charts.forEach(chartId => {
+                const chart = document.getElementById(chartId);
+                if (chart && chart.data) {
+                    Plotly.relayout(chartId, chartConfig);
                 }
             });
         }
 
-        function updatePositions() {
-            $.get('/api/positions', function(data) {
+        // Error handling function
+        function handleError(element, error) {
+            element.classList.remove('loading');
+            element.innerHTML = `
+                <div class="error-message">
+                    <strong>Erreur:</strong> ${error}
+                </div>
+            `;
+        }
+
+        // Loading state management
+        function setLoading(element, isLoading) {
+            if (isLoading) {
+                element.classList.add('loading');
+            } else {
+                element.classList.remove('loading');
+            }
+        }
+
+        // API request wrapper with error handling
+        async function apiRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`API Error (${url}):`, error);
+                throw error;
+            }
+        }
+
+        // Update functions with error handling and loading states
+        async function updateSpreads() {
+            const element = document.getElementById('spreads-table');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/spreads');
+                let html = '';
+                data.forEach(item => {
+                    const statusClass = item.current_spread <= item.max_spread ? 'text-success' : 'text-danger';
+                    html += `
+                        <tr>
+                            <td>${item.symbol}</td>
+                            <td>${item.current_spread.toFixed(1)}</td>
+                            <td>${item.max_spread.toFixed(1)}</td>
+                            <td>
+                                <span class="badge ${statusClass}">
+                                    ${item.current_spread <= item.max_spread ? 'OK' : 'Élevé'}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                $('#spreads-body').html(html);
+            } catch (error) {
+                handleError(element, "Impossible de charger les spreads");
+            } finally {
+                setLoading(element, false);
+            }
+        }
+
+        async function updateMarketConditions() {
+            const element = document.getElementById('market-conditions');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/market_conditions');
+                let html = '';
+                data.forEach(item => {
+                    const volatilityClass = item.volatility >= 70 ? 'bg-danger' : 
+                                          item.volatility >= 30 ? 'bg-warning' : 'bg-success';
+                    html += `
+                        <tr>
+                            <td>${item.symbol}</td>
+                            <td>
+                                <div class="progress">
+                                    <div class="progress-bar ${volatilityClass}" 
+                                         role="progressbar" 
+                                         style="width: ${item.volatility}%"
+                                         aria-valuenow="${item.volatility}" 
+                                         aria-valuemin="0" 
+                                         aria-valuemax="100">
+                                        ${item.volatility}%
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge ${item.trend === 'HAUSSIER' ? 'bg-success' : 'bg-danger'}">
+                                    ${item.trend}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="${item.volume_trend === 'INCREASING' ? 'text-success' : 'text-danger'}">
+                                    <i class="fas fa-arrow-${item.volume_trend === 'INCREASING' ? 'up' : 'down'}"></i>
+                                    ${item.volume_trend}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                $('#market-conditions-body').html(html);
+            } catch (error) {
+                handleError(element, "Impossible de charger les conditions de marché");
+            } finally {
+                setLoading(element, false);
+            }
+        }
+
+        async function updatePerformanceCharts() {
+            const dailyChart = document.getElementById('daily-performance-chart');
+            const distributionChart = document.getElementById('trade-distribution-chart');
+            
+            try {
+                setLoading(dailyChart.parentElement, true);
+                setLoading(distributionChart.parentElement, true);
+                
+                const data = await apiRequest('/api/performance');
+                const isDarkMode = document.body.classList.contains('dark-mode');
+                
+                const chartConfig = {
+                    paper_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                    plot_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                    font: {
+                        color: isDarkMode ? '#fff' : '#000'
+                    },
+                    xaxis: {
+                        gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                    },
+                    yaxis: {
+                        gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                    }
+                };
+
+                // Daily performance chart
+                const dailyTrace = {
+                    x: data.dates,
+                    y: data.daily_returns,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: 'Performance',
+                    line: {
+                        color: '#2196F3',
+                        width: 2
+                    },
+                    marker: {
+                        size: 6
+                    }
+                };
+
+                const dailyLayout = {
+                    ...chartConfig,
+                    title: 'Performance Journalière',
+                    xaxis: { 
+                        title: 'Date',
+                        ...chartConfig.xaxis
+                    },
+                    yaxis: { 
+                        title: 'Rendement (%)',
+                        ...chartConfig.yaxis
+                    },
+                    height: 300,
+                    margin: { t: 30, l: 60, r: 30, b: 40 }
+                };
+
+                Plotly.newPlot('daily-performance-chart', [dailyTrace], dailyLayout);
+
+                // Distribution chart
+                const distributionTrace = {
+                    x: data.profit_ranges,
+                    y: data.trade_counts,
+                    type: 'bar',
+                    marker: {
+                        color: data.profit_ranges.map(val => val >= 0 ? '#4CAF50' : '#F44336')
+                    }
+                };
+
+                const distributionLayout = {
+                    ...chartConfig,
+                    title: 'Distribution des Profits/Pertes',
+                    xaxis: { 
+                        title: 'Profit/Perte',
+                        ...chartConfig.xaxis
+                    },
+                    yaxis: { 
+                        title: 'Nombre de Trades',
+                        ...chartConfig.yaxis
+                    },
+                    height: 300,
+                    margin: { t: 30, l: 60, r: 30, b: 40 }
+                };
+
+                Plotly.newPlot('trade-distribution-chart', [distributionTrace], distributionLayout);
+            } catch (error) {
+                handleError(dailyChart.parentElement, "Impossible de charger les graphiques de performance");
+                handleError(distributionChart.parentElement, "Impossible de charger les graphiques de performance");
+            } finally {
+                setLoading(dailyChart.parentElement, false);
+                setLoading(distributionChart.parentElement, false);
+            }
+        }
+
+        async function updateAlerts() {
+            const element = document.getElementById('alerts-container');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/alerts');
+                let html = '';
+                let count = 0;
+                data.forEach(alert => {
+                    if (!alert.read) count++;
+                    html += `
+                        <div class="alert alert-${alert.type} ${alert.read ? 'opacity-75' : ''}" role="alert">
+                            <strong>${alert.timestamp}</strong>: ${alert.message}
+                        </div>
+                    `;
+                });
+                element.innerHTML = html;
+                $('#alerts-count').text(count);
+            } catch (error) {
+                handleError(element, "Impossible de charger les alertes");
+            } finally {
+                setLoading(element, false);
+            }
+        }
+
+        async function updateAccountInfo() {
+            const element = document.getElementById('account-info');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/account');
+                element.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>Balance</h5>
+                            <p class="h3">${data.balance.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Equity</h5>
+                            <p class="h3">${data.equity.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Margin</h5>
+                            <p>${data.margin.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Free Margin</h5>
+                            <p>${data.free_margin.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Margin Level</h5>
+                            <p>${data.margin_level?.toFixed(2) || 'N/A'}%</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Profit</h5>
+                            <p class="h4 ${data.profit >= 0 ? 'profit' : 'loss'}">
+                                ${data.profit.toFixed(2)}
+                            </p>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                handleError(element, "Impossible de charger les informations du compte");
+            } finally {
+                setLoading(element, false);
+            }
+        }
+
+        async function updatePositions() {
+            const element = document.getElementById('positions-table');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/positions');
                 let html = '';
                 data.forEach(position => {
                     html += `
                         <tr>
                             <td>${position.ticket}</td>
                             <td>${position.symbol}</td>
-                            <td>${position.type}</td>
+                            <td>
+                                <span class="badge ${position.type === 'BUY' ? 'bg-success' : 'bg-danger'}">
+                                    ${position.type}
+                                </span>
+                            </td>
                             <td>${position.volume}</td>
                             <td>${position.open_price.toFixed(5)}</td>
                             <td>${position.current_price.toFixed(5)}</td>
@@ -212,47 +791,114 @@
                         </tr>
                     `;
                 });
-                $('#positions-body').html(html || '<tr><td colspan="10">Aucune position ouverte</td></tr>');
-            });
+                $('#positions-body').html(html || '<tr><td colspan="10" class="text-center">Aucune position ouverte</td></tr>');
+            } catch (error) {
+                handleError(element, "Impossible de charger les positions");
+            } finally {
+                setLoading(element, false);
+            }
         }
 
-        function updateChart() {
-            const symbol = $('#symbol-select').val();
-            $.get(`/api/chart/${symbol}`, function(data) {
+        async function updateChart() {
+            const element = document.getElementById('price-chart');
+            try {
+                setLoading(element, true);
+                const symbol = $('#symbol-select').val();
+                const data = await apiRequest(`/api/chart/${symbol}`);
                 if (data.chart) {
-                    Plotly.newPlot('price-chart', JSON.parse(data.chart));
+                    const chartData = JSON.parse(data.chart);
+                    const isDarkMode = document.body.classList.contains('dark-mode');
+                    
+                    // Apply theme to chart
+                    const layout = {
+                        paper_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                        plot_bgcolor: isDarkMode ? '#2d2d2d' : '#fff',
+                        font: {
+                            color: isDarkMode ? '#fff' : '#000'
+                        },
+                        xaxis: {
+                            gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                        },
+                        yaxis: {
+                            gridcolor: isDarkMode ? '#404040' : '#e6e6e6'
+                        }
+                    };
+
+                    Plotly.newPlot('price-chart', chartData, layout);
                 }
-            });
+            } catch (error) {
+                handleError(element, "Impossible de charger le graphique");
+            } finally {
+                setLoading(element, false);
+            }
         }
 
-        function updateStats() {
-            $.get('/api/stats', function(data) {
-                if (data) {
-                    $('#trading-stats').html(`
-                        <p>Trades totaux: ${data.total_trades}</p>
-                        <p>Trades gagnants: ${data.winning_trades}</p>
-                        <p>Trades perdants: ${data.losing_trades}</p>
-                        <p>Win Rate: ${data.win_rate.toFixed(2)}%</p>
-                        <p>Profit total: ${data.total_profit.toFixed(2)}</p>
-                        <p>Plus grand gain: ${data.largest_win.toFixed(2)}</p>
-                        <p>Plus grande perte: ${data.largest_loss.toFixed(2)}</p>
-                        <p>Gain moyen: ${data.average_win.toFixed(2)}</p>
-                        <p>Perte moyenne: ${data.average_loss.toFixed(2)}</p>
-                        <p>Facteur de profit: ${data.profit_factor.toFixed(2)}</p>
-                    `);
-                }
-            });
+        async function updateStats() {
+            const element = document.getElementById('trading-stats');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/stats');
+                element.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>Trades totaux</h5>
+                            <p class="h4">${data.total_trades}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Win Rate</h5>
+                            <p class="h4">${data.win_rate.toFixed(2)}%</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Profit total</h5>
+                            <p class="h4 ${data.total_profit >= 0 ? 'profit' : 'loss'}">
+                                ${data.total_profit.toFixed(2)}
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Facteur de profit</h5>
+                            <p class="h4">${data.profit_factor.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Plus grand gain</h5>
+                            <p class="profit">${data.largest_win.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Plus grande perte</h5>
+                            <p class="loss">${data.largest_loss.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Gain moyen</h5>
+                            <p class="profit">${data.average_win.toFixed(2)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>Perte moyenne</h5>
+                            <p class="loss">${data.average_loss.toFixed(2)}</p>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                handleError(element, "Impossible de charger les statistiques");
+            } finally {
+                setLoading(element, false);
+            }
         }
 
-        function updateHistory() {
-            $.get('/api/history', function(data) {
+        async function updateHistory() {
+            const element = document.getElementById('history-body');
+            try {
+                setLoading(element, true);
+                const data = await apiRequest('/api/history');
                 let html = '';
                 data.forEach(trade => {
                     html += `
                         <tr>
                             <td>${trade.close_time}</td>
                             <td>${trade.symbol}</td>
-                            <td>${trade.type}</td>
+                            <td>
+                                <span class="badge ${trade.type === 'BUY' ? 'bg-success' : 'bg-danger'}">
+                                    ${trade.type}
+                                </span>
+                            </td>
                             <td>${trade.volume}</td>
                             <td>${trade.open_price.toFixed(5)}</td>
                             <td>${trade.close_price.toFixed(5)}</td>
@@ -262,64 +908,100 @@
                         </tr>
                     `;
                 });
-                $('#history-body').html(html || '<tr><td colspan="7">Aucun historique disponible</td></tr>');
-            });
+                $('#history-body').html(html || '<tr><td colspan="7" class="text-center">Aucun historique disponible</td></tr>');
+            } catch (error) {
+                handleError(element, "Impossible de charger l'historique");
+            } finally {
+                setLoading(element, false);
+            }
         }
 
-        // Gestion du formulaire d'ordre
-        $('#order-form').submit(function(e) {
+        // Form submission handling
+        $('#order-form').submit(async function(e) {
             e.preventDefault();
-            const orderData = {
-                symbol: $('#order-symbol').val(),
-                type: $('#order-type').val(),
-                volume: parseFloat($('#order-volume').val()),
-                sl: parseFloat($('#order-sl').val()) || null,
-                tp: parseFloat($('#order-tp').val()) || null
-            };
+            const submitBtn = $(this).find('button[type="submit"]');
+            const submitText = submitBtn.find('.submit-text');
+            const spinner = submitBtn.find('.spinner-border');
+            
+            try {
+                submitBtn.prop('disabled', true);
+                submitText.addClass('d-none');
+                spinner.removeClass('d-none');
 
-            $.post('/api/order', orderData, function(response) {
+                const orderData = {
+                    symbol: $('#order-symbol').val(),
+                    type: $('#order-type').val(),
+                    volume: parseFloat($('#order-volume').val()),
+                    sl: parseFloat($('#order-sl').val()) || null,
+                    tp: parseFloat($('#order-tp').val()) || null
+                };
+
+                const response = await apiRequest('/api/order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
                 if (response.success) {
                     alert('Ordre placé avec succès !');
                     updatePositions();
+                    this.reset();
                 } else {
                     alert('Erreur : ' + response.error);
                 }
-            });
+            } catch (error) {
+                alert('Erreur lors du placement de l\'ordre');
+            } finally {
+                submitBtn.prop('disabled', false);
+                submitText.removeClass('d-none');
+                spinner.addClass('d-none');
+            }
         });
 
-        // Mise à jour automatique
-        function startAutoUpdate() {
-            // Mise à jour initiale
+        // Initialize everything
+        $(document).ready(function() {
+            // Initialize theme
+            initTheme();
+
+            // Initial updates
             updateAccountInfo();
             updatePositions();
             updateChart();
             updateStats();
             updateHistory();
+            updateSpreads();
+            updateMarketConditions();
+            updatePerformanceCharts();
+            updateAlerts();
 
-            // Mise à jour périodique
-            setInterval(updateAccountInfo, 5000);      // Chaque 5 secondes
-            setInterval(updatePositions, 5000);        // Chaque 5 secondes
-            setInterval(updateChart, 30000);           // Chaque 30 secondes
-            setInterval(updateStats, 60000);           // Chaque minute
-            setInterval(updateHistory, 60000);         // Chaque minute
-        }
+            // Set up periodic updates
+            setInterval(updateAccountInfo, 5000);       // Every 5 seconds
+            setInterval(updatePositions, 5000);         // Every 5 seconds
+            setInterval(updateChart, 30000);            // Every 30 seconds
+            setInterval(updateStats, 60000);            // Every minute
+            setInterval(updateHistory, 60000);          // Every minute
+            setInterval(updateSpreads, 5000);           // Every 5 seconds
+            setInterval(updateMarketConditions, 5000);  // Every 5 seconds
+            setInterval(updatePerformanceCharts, 60000);// Every minute
+            setInterval(updateAlerts, 10000);           // Every 10 seconds
 
-        // Event listeners
-        $(document).ready(function() {
-            startAutoUpdate();
-
-            // Mise à jour du graphique lors du changement de symbole
+            // Chart symbol change handler
             $('#symbol-select').change(function() {
                 updateChart();
             });
-        });
 
-        // Gestion du redimensionnement de la fenêtre
-        window.addEventListener('resize', function() {
-            var chart = document.getElementById('price-chart');
-            if (chart && chart.data) {
-                Plotly.Plots.resize(chart);
-            }
+            // Handle window resize for charts
+            window.addEventListener('resize', function() {
+                const charts = ['daily-performance-chart', 'trade-distribution-chart', 'price-chart'];
+                charts.forEach(chartId => {
+                    const chart = document.getElementById(chartId);
+                    if (chart && chart.data) {
+                        Plotly.Plots.resize(chart);
+                    }
+                });
+            });
         });
     </script>
 </body>

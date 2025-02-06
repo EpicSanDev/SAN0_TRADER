@@ -329,7 +329,21 @@ class GPTTradingBot:
         self.validation_points_required = 8  # Augmenté pour une validation plus stricte
         self.min_trend_strength = 65        # Nouveau seuil pour la force de la tendance
         self.min_volume_threshold = 1.2     # Volume minimum par rapport à la moyenne
-        self.max_spread_multiplier = 1.5    # Multiplicateur max pour le spread
+        self.spread_settings = {
+            # Forex majeurs - spreads plus serrés
+            'EURUSD': {'base': 1.2, 'volatility_factor': 0.2},
+            'GBPUSD': {'base': 1.3, 'volatility_factor': 0.25},
+            'USDJPY': {'base': 1.2, 'volatility_factor': 0.2},
+            # Forex mineurs - spreads moyens
+            'EURGBP': {'base': 1.4, 'volatility_factor': 0.3},
+            'AUDUSD': {'base': 1.5, 'volatility_factor': 0.35},
+            'USDCAD': {'base': 1.4, 'volatility_factor': 0.3},
+            # Crypto - spreads plus larges
+            'BTCUSD': {'base': 2.0, 'volatility_factor': 0.5},
+            'ETHUSD': {'base': 2.0, 'volatility_factor': 0.5},
+            # Valeurs par défaut pour les autres actifs
+            'default': {'base': 1.5, 'volatility_factor': 0.4}
+        }
         self.min_risk_reward = 2.0         # Ratio risque/récompense minimum
 
     def initialize_performance_metrics(self):
@@ -1944,11 +1958,11 @@ Please analyze the data and provide a trading decision in this JSON format:
                 logging.error(f"Impossible d'obtenir les informations pour {symbol}")
                 return False
 
-            # 2. Vérification du spread
+            # 2. Vérification du spread avec gestion dynamique
             current_spread = symbol_info.spread
-            avg_spread = MARKET_FILTERS["SPREAD_FILTER"]["max_spread_pips"]
-            if current_spread > avg_spread * self.max_spread_multiplier:
-                logging.info(f"Spread trop élevé pour {symbol}: {current_spread} > {avg_spread * self.max_spread_multiplier}")
+            max_spread = self.calculate_max_spread(symbol, symbol_info)
+            if current_spread > max_spread:
+                logging.info(f"Spread trop élevé pour {symbol}: {current_spread} > {max_spread}")
                 return False
 
             # 3. Vérification de la force de la tendance
@@ -2292,6 +2306,45 @@ Please analyze the data and provide a trading decision in this JSON format:
         except Exception as e:
             logging.error(f"Erreur lors de l'évaluation des conditions de marché: {e}")
             return 1.0
+
+    def calculate_max_spread(self, symbol, symbol_info):
+        """Calcule le spread maximum autorisé pour un symbole donné"""
+        try:
+            # Récupérer les paramètres de spread pour le symbole
+            spread_params = self.spread_settings.get(symbol, self.spread_settings['default'])
+            
+            # Calculer le facteur de volatilité
+            market_data = self.get_market_data_multi_timeframe(symbol)
+            volatility_multiplier = 1.0
+            
+            if market_data and "H1" in market_data:
+                df = market_data["H1"]
+                volatility = self.calculate_volatility(df)
+                
+                # Ajuster le multiplicateur en fonction de la volatilité
+                if volatility > 70:  # Haute volatilité
+                    volatility_multiplier = 1 + spread_params['volatility_factor']
+                elif volatility < 30:  # Basse volatilité
+                    volatility_multiplier = 1 - (spread_params['volatility_factor'] / 2)
+            
+            # Récupérer le spread moyen du marché
+            avg_spread = MARKET_FILTERS["SPREAD_FILTER"]["max_spread_pips"]
+            
+            # Calculer le spread maximum autorisé
+            max_spread = avg_spread * spread_params['base'] * volatility_multiplier
+            
+            # Ajustement pour les sessions de marché
+            current_hour = datetime.now().hour
+            if 22 <= current_hour or current_hour < 2:  # Session asiatique début
+                max_spread *= 1.2  # Spread plus large autorisé
+            elif 8 <= current_hour < 10:  # Ouverture session européenne
+                max_spread *= 1.1  # Spread légèrement plus large autorisé
+            
+            return max_spread
+            
+        except Exception as e:
+            logging.error(f"Erreur lors du calcul du spread maximum: {e}")
+            return float('inf')  # En cas d'erreur, retourner une valeur infinie pour éviter le trade
 
     def calculate_atr(self, symbol):
         """Calcule l'ATR (Average True Range) pour un symbole"""

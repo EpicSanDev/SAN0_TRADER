@@ -8,8 +8,91 @@ from datetime import datetime, timedelta
 import numpy as np
 from config import *
 import json
+import logging
 
 app = Flask(__name__)
+
+def get_market_data_multi_timeframe(symbol):
+    """Récupère les données de marché pour différentes timeframes"""
+    try:
+        timeframes = {
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1
+        }
+        
+        result = {}
+        for tf_name, tf_value in timeframes.items():
+            rates = mt5.copy_rates_from(symbol, tf_value, datetime.now(), 1000)
+            if rates is None or len(rates) == 0:
+                continue
+                
+            df = pd.DataFrame(rates)
+            df['time'] = pd.to_datetime(df['time'], unit='s')
+            result[tf_name] = df
+            
+        return result
+            
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des données multi-timeframes pour {symbol}: {e}")
+        return None
+
+def calculate_volatility(df):
+    """Calcule la volatilité du marché"""
+    try:
+        # Utiliser l'ATR comme mesure de volatilité
+        high_low = df['high'] - df['low']
+        high_close = np.abs(df['high'] - df['close'].shift())
+        low_close = np.abs(df['low'] - df['close'].shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = np.max(ranges, axis=1)
+        atr = true_range.rolling(14).mean().iloc[-1]
+        
+        avg_price = df['close'].mean()
+        volatility = (atr / avg_price) * 100
+        
+        # Normaliser entre 0 et 100
+        return min(max(volatility * 10, 0), 100)
+        
+    except Exception as e:
+        logging.error(f"Erreur lors du calcul de la volatilité: {e}")
+        return 0
+
+def detect_trend(df):
+    """Détecte la tendance du marché"""
+    try:
+        # Calculer les moyennes mobiles
+        ma20 = df['close'].rolling(window=20).mean()
+        ma50 = df['close'].rolling(window=50).mean()
+        ma200 = df['close'].rolling(window=200).mean()
+        
+        # Vérifier l'alignement des moyennes mobiles
+        if ma20.iloc[-1] > ma50.iloc[-1] > ma200.iloc[-1]:
+            if df['close'].iloc[-1] > ma20.iloc[-1]:
+                return "STRONG_UPTREND"
+            return "UPTREND"
+        elif ma20.iloc[-1] < ma50.iloc[-1] < ma200.iloc[-1]:
+            if df['close'].iloc[-1] < ma20.iloc[-1]:
+                return "STRONG_DOWNTREND"
+            return "DOWNTREND"
+            
+        # Vérifier les conditions de range
+        bb_width = df['close'].rolling(20).std().iloc[-1] * 2
+        avg_bb_width = df['close'].rolling(20).std().mean() * 2
+        
+        if bb_width < avg_bb_width * 0.8:
+            return "RANGING_TIGHT"
+        elif bb_width > avg_bb_width * 1.2:
+            return "RANGING_WIDE"
+        
+        return "RANGING_NORMAL"
+        
+    except Exception as e:
+        logging.error(f"Erreur lors de la détection de tendance: {e}")
+        return "NEUTRAL"
+
 
 def get_account_info():
     """Récupère les informations du compte"""
@@ -298,6 +381,192 @@ def order():
         return jsonify({"success": success, "message": message})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/spreads')
+def spreads():
+    """API pour les spreads en temps réel"""
+    try:
+        spreads_data = []
+        for symbol in SYMBOLS:
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info:
+                # Calculer le spread maximum autorisé en utilisant la logique du bot
+                market_data = get_market_data_multi_timeframe(symbol)
+                volatility_multiplier = 1.0
+                
+                if market_data and "H1" in market_data:
+                    df = market_data["H1"]
+                    volatility = calculate_volatility(df)
+                    spread_params = {
+                        'EURUSD': {'base': 1.2, 'volatility_factor': 0.2},
+                        'GBPUSD': {'base': 1.3, 'volatility_factor': 0.25},
+                        'USDJPY': {'base': 1.2, 'volatility_factor': 0.2},
+                        'EURGBP': {'base': 1.4, 'volatility_factor': 0.3},
+                        'AUDUSD': {'base': 1.5, 'volatility_factor': 0.35},
+                        'USDCAD': {'base': 1.4, 'volatility_factor': 0.3},
+                        'BTCUSD': {'base': 2.0, 'volatility_factor': 0.5},
+                        'ETHUSD': {'base': 2.0, 'volatility_factor': 0.5},
+                        'default': {'base': 1.5, 'volatility_factor': 0.4}
+                    }
+                    params = spread_params.get(symbol, spread_params['default'])
+                    
+                    if volatility > 70:
+                        volatility_multiplier = 1 + params['volatility_factor']
+                    elif volatility < 30:
+                        volatility_multiplier = 1 - (params['volatility_factor'] / 2)
+                
+                avg_spread = MARKET_FILTERS["SPREAD_FILTER"]["max_spread_pips"]
+                max_spread = avg_spread * params['base'] * volatility_multiplier
+                
+                # Ajustement pour les sessions de marché
+                current_hour = datetime.now().hour
+                if 22 <= current_hour or current_hour < 2:
+                    max_spread *= 1.2
+                elif 8 <= current_hour < 10:
+                    max_spread *= 1.1
+                
+                spreads_data.append({
+                    'symbol': symbol,
+                    'current_spread': symbol_info.spread,
+                    'max_spread': max_spread
+                })
+        return jsonify(spreads_data)
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des spreads: {e}")
+        return jsonify([])
+
+@app.route('/api/market_conditions')
+def market_conditions():
+    """API pour les conditions de marché"""
+    try:
+        conditions_data = []
+        for symbol in SYMBOLS:
+            market_data = get_market_data_multi_timeframe(symbol)
+            if market_data and "H1" in market_data:
+                df = market_data["H1"]
+                volatility = calculate_volatility(df)
+                trend = detect_trend(df)
+                volume_trend = "INCREASING" if df['tick_volume'].diff().mean() > 0 else "DECREASING"
+                
+                conditions_data.append({
+                    'symbol': symbol,
+                    'volatility': volatility,
+                    'trend': trend,
+                    'volume_trend': volume_trend
+                })
+        return jsonify(conditions_data)
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des conditions de marché: {e}")
+        return jsonify([])
+
+@app.route('/api/performance')
+def performance():
+    """API pour les données de performance"""
+    try:
+        # Récupérer l'historique des trades
+        history = get_trade_history(30)  # 30 derniers jours
+        
+        # Calculer les rendements journaliers
+        daily_returns = []
+        dates = []
+        current_date = None
+        daily_profit = 0
+        
+        for trade in sorted(history, key=lambda x: x['close_time']):
+            trade_date = datetime.strptime(trade['close_time'], '%Y-%m-%d %H:%M:%S').date()
+            if current_date is None:
+                current_date = trade_date
+            
+            if trade_date != current_date:
+                daily_returns.append(daily_profit)
+                dates.append(current_date.strftime('%Y-%m-%d'))
+                daily_profit = 0
+                current_date = trade_date
+            
+            daily_profit += trade['profit']
+        
+        # Ajouter le dernier jour
+        if current_date:
+            daily_returns.append(daily_profit)
+            dates.append(current_date.strftime('%Y-%m-%d'))
+        
+        # Calculer la distribution des profits/pertes
+        profits = [trade['profit'] for trade in history]
+        min_profit = min(profits) if profits else 0
+        max_profit = max(profits) if profits else 0
+        
+        # Créer des intervalles de profit
+        num_bins = 10
+        profit_ranges = np.linspace(min_profit, max_profit, num_bins)
+        trade_counts = np.zeros(num_bins - 1)
+        
+        for profit in profits:
+            for i in range(len(profit_ranges) - 1):
+                if profit_ranges[i] <= profit < profit_ranges[i + 1]:
+                    trade_counts[i] += 1
+                    break
+        
+        return jsonify({
+            'dates': dates,
+            'daily_returns': daily_returns,
+            'profit_ranges': profit_ranges[:-1].tolist(),
+            'trade_counts': trade_counts.tolist()
+        })
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des données de performance: {e}")
+        return jsonify({
+            'dates': [],
+            'daily_returns': [],
+            'profit_ranges': [],
+            'trade_counts': []
+        })
+
+@app.route('/api/alerts')
+def alerts():
+    """API pour les alertes et notifications"""
+    try:
+        alerts_data = []
+        # Vérifier les spreads élevés
+        for symbol in SYMBOLS:
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info:
+                current_spread = symbol_info.spread
+                if current_spread > MARKET_FILTERS["SPREAD_FILTER"]["max_spread_pips"] * 2:
+                    alerts_data.append({
+                        'type': 'warning',
+                        'timestamp': datetime.now().strftime('%H:%M:%S'),
+                        'message': f'Spread élevé sur {symbol}: {current_spread} pips',
+                        'read': False
+                    })
+        
+        # Vérifier les positions avec pertes importantes
+        positions = mt5.positions_get()
+        if positions:
+            for pos in positions:
+                if pos.profit < -50:  # Alerte si perte > 50
+                    alerts_data.append({
+                        'type': 'danger',
+                        'timestamp': datetime.now().strftime('%H:%M:%S'),
+                        'message': f'Position {pos.ticket} sur {pos.symbol} en perte importante: {pos.profit:.2f}',
+                        'read': False
+                    })
+        
+        # Vérifier la marge disponible
+        account_info = mt5.account_info()
+        if account_info:
+            margin_level = account_info.margin_level if account_info.margin_level else 0
+            if margin_level < 150:  # Alerte si niveau de marge < 150%
+                alerts_data.append({
+                    'type': 'danger',
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'message': f'Niveau de marge bas: {margin_level:.2f}%',
+                    'read': False
+                })
+        
+        return jsonify(alerts_data)
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des alertes: {e}")
+        return jsonify([])
 
 @app.route('/api/history')
 def history():
