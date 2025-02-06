@@ -35,8 +35,8 @@ RISK_MANAGEMENT = {
 }
 
 # Paramètres Telegram
-TELEGRAM_TOKEN = "8130439939:AAG0asyQEXvytzAB3QZkHrbkkkCv7Q0hXeM"
-TELEGRAM_CHAT_ID = "-4546591195"
+TELEGRAM_TOKEN = ""
+TELEGRAM_CHAT_ID = ""
 
 # Paramètres techniques supplémentaires
 TIMEFRAMES = ["M15", "H1", "H4"]  # Multiple timeframes
