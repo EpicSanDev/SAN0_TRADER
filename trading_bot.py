@@ -1,7 +1,7 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import numpy as np
-import openai
+import requests
 import time
 import logging
 import telegram
@@ -303,7 +303,6 @@ class GPTTradingBot:
         if not self.initialize_mt5():
             raise Exception("Échec de l'initialisation de MetaTrader 5")
         self.setup_telegram()
-        openai.api_key = OPENAI_API_KEY
         self.daily_trades = 0
         self.daily_pl = 0
         self.last_reset = datetime.now().date()
@@ -771,8 +770,140 @@ Please analyze all the above data and provide a detailed trading decision with a
             }
 
     def analyze_with_gpt4(self, market_data, symbol):
-        """Version synchrone de l'analyse GPT-4"""
-        return self.analyze_with_ollama(market_data, symbol)
+        """Version synchrone de l'analyse avec OpenRouter"""
+        try:
+            if isinstance(market_data, dict):
+                if "H1" in market_data:
+                    market_data = market_data["H1"]
+                else:
+                    logging.error(f"Données H1 non trouvées pour {symbol}")
+                    return {
+                        "decision": "HOLD",
+                        "confidence": 0,
+                        "market_context": {
+                            "trend_strength": 0,
+                            "volatility_rating": "LOW",
+                            "trading_conditions": "UNFAVORABLE"
+                        }
+                    }
+
+            # Préparation des données
+            account_info = mt5.account_info()
+            if account_info is None:
+                logging.error("Impossible d'obtenir les informations du compte")
+                return {
+                    "decision": "HOLD",
+                    "confidence": 0,
+                    "market_context": {
+                        "trend_strength": 0,
+                        "volatility_rating": "LOW",
+                        "trading_conditions": "UNFAVORABLE"
+                    }
+                }
+
+            # Préparation des données pour l'analyse
+            technical_analysis = self.convert_to_json_serializable({
+                "indicators": {
+                    "RSI": {
+                        "RSI14": float(market_data['RSI'].iloc[-1]),
+                        "RSI5": float(market_data['RSI_5'].iloc[-1]),
+                        "RSI21": float(market_data['RSI_21'].iloc[-1])
+                    },
+                    "MACD": {
+                        "value": float(market_data['MACD'].iloc[-1]),
+                        "signal": float(market_data['Signal'].iloc[-1]),
+                        "histogram": float(market_data['MACD_Hist'].iloc[-1])
+                    }
+                }
+            })
+
+            # Préparation du prompt
+            prompt = f"""Analyze this market data for {symbol}:
+
+Technical Analysis:
+{json.dumps(technical_analysis, indent=2)}
+
+Please analyze the data and provide a trading decision in this JSON format:
+{{
+    "decision": "BUY|SELL|HOLD",
+    "confidence": <0-100>,
+    "market_context": {{
+        "trend_strength": <0-100>,
+        "volatility_rating": "LOW|MEDIUM|HIGH",
+        "trading_conditions": "FAVORABLE|NEUTRAL|UNFAVORABLE"
+    }}
+}}"""
+
+            # Appel à l'API OpenRouter
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://your-site.com",
+                "X-Title": "Trading Bot"
+            }
+
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "meta-llama/llama-3.3-70b-instruct",
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ]
+                }
+            )
+
+            if response.status_code != 200:
+                logging.error(f"Erreur OpenRouter: {response.text}")
+                return {
+                    "decision": "HOLD",
+                    "confidence": 0,
+                    "market_context": {
+                        "trend_strength": 0,
+                        "volatility_rating": "LOW",
+                        "trading_conditions": "UNFAVORABLE"
+                    }
+                }
+
+            # Traitement de la réponse
+            try:
+                response_data = response.json()
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    content = response_data["choices"][0]["message"]["content"]
+                    # Extraire le JSON de la réponse
+                    json_start = content.find('{')
+                    json_end = content.rfind('}') + 1
+                    if json_start >= 0 and json_end > 0:
+                        analysis_result = json.loads(content[json_start:json_end])
+                        return analysis_result
+                    else:
+                        return self.parse_gpt_response(content)
+                else:
+                    logging.error("Réponse OpenRouter invalide")
+                    return {
+                        "decision": "HOLD",
+                        "confidence": 0,
+                        "market_context": {
+                            "trend_strength": 0,
+                            "volatility_rating": "LOW",
+                            "trading_conditions": "UNFAVORABLE"
+                        }
+                    }
+
+            except json.JSONDecodeError as e:
+                logging.error(f"Erreur de parsing JSON: {e}")
+                return self.parse_gpt_response(content)
+
+        except Exception as e:
+            logging.error(f"Erreur dans l'analyse OpenRouter: {e}")
+            return {
+                "decision": "HOLD",
+                "confidence": 0,
+                "market_context": {
+                    "trend_strength": 0,
+                    "volatility_rating": "LOW",
+                    "trading_conditions": "UNFAVORABLE"
+                }
+            }
 
     def run(self):
         """Boucle principale d'exécution du bot"""
