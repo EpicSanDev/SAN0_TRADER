@@ -18,9 +18,15 @@ from trading_bot import GPTTradingBot
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Store chat messages and initialize bot
+# Store chat messages
 chat_messages = []
-trading_bot = GPTTradingBot()
+# The trading_bot instance will be set by run.py
+trading_bot = None
+
+def init_trading_bot(bot_instance):
+    """Initialize the trading bot instance"""
+    global trading_bot
+    trading_bot = bot_instance
 
 # Initialize MT5 connection
 if not mt5.initialize():
@@ -715,11 +721,24 @@ def handle_connect():
 
 @socketio.on('chat_message')
 def handle_message(data):
-    """Handle incoming chat messages"""
+    """Handle incoming chat messages and Telegram commands"""
     try:
+        message = data.get('message', '').strip()
+        
+        # Check if it's a Telegram command
+        if message.startswith('/'):
+            command_parts = message.split()
+            command = command_parts[0][1:]  # Remove the '/' prefix
+            args = command_parts[1:] if len(command_parts) > 1 else []
+            
+            # Process the command
+            trading_bot.process_telegram_command(command, *args)
+            return
+            
+        # Handle regular chat message
         user_message = {
             'user': data.get('user', 'Anonymous'),
-            'message': data.get('message', ''),
+            'message': message,
             'timestamp': datetime.now().strftime('%H:%M:%S')
         }
         chat_messages.append(user_message)
@@ -736,7 +755,7 @@ def handle_message(data):
             emit('chat_message', error_message, broadcast=True)
             return
         
-        # Generate bot response
+        # Generate bot response for regular messages
         try:
             # Select EURUSD symbol
             if not mt5.symbol_select("EURUSD", True):
