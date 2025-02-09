@@ -643,12 +643,23 @@ class GPTTradingBot:
             performance_data = self.get_recent_performance(symbol)
             recent_trades = self.convert_to_json_serializable(self.trade_history[-10:])
 
-            # Economic events and news
-            economic_events = self.calendar.get_events_for_symbol(symbol) if self.calendar else {}
-            sentiment_score, confidence_score = self.news_analyzer.get_market_sentiment(symbol)
+            # Economic events and news with timeout handling
+            try:
+                economic_events = self.calendar.get_events_for_symbol(symbol) if self.calendar else {}
+            except Exception as e:
+                logging.error(f"Error getting economic events: {e}")
+                economic_events = {}
+
+            try:
+                sentiment_score, confidence_score = self.news_analyzer.get_market_sentiment(symbol)
+            except Exception as e:
+                logging.error(f"Error getting market sentiment: {e}")
+                sentiment_score, confidence_score = 0, 0
+
             news_impact = {
                 "sentiment_score": sentiment_score,
-                "confidence_score": confidence_score
+                "confidence_score": confidence_score,
+                "status": "success" if sentiment_score != 0 or confidence_score != 0 else "failed"
             }
 
             # Latest prices
@@ -1959,20 +1970,58 @@ Please analyze the data and provide a trading decision in this JSON format:
                     )
                     return
                     
-                self.telegram_bot.send_message(
+                # Envoyer un message initial avec un statut
+                message = self.telegram_bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
-                    text=f"Analyse en cours pour {symbol}..."
+                    text=f"🔄 Analyse en cours pour {symbol}...\n\n1. Récupération des données de marché..."
                 )
                 
-                # Get market data and perform analysis
-                market_data = self.get_market_data_multi_timeframe(symbol)
-                if market_data and "H1" in market_data:
-                    analysis = self.analyze_with_gpt4(market_data["H1"], symbol)
-                    self.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
-                else:
-                    self.telegram_bot.send_message(
+                try:
+                    # Get market data with timeout
+                    market_data = self.get_market_data_multi_timeframe(symbol)
+                    if not market_data or "H1" not in market_data:
+                        self.telegram_bot.edit_message_text(
+                            chat_id=TELEGRAM_CHAT_ID,
+                            message_id=message.message_id,
+                            text=f"❌ Impossible d'obtenir les données pour {symbol}"
+                        )
+                        return
+
+                    # Update progress - Technical Analysis
+                    self.telegram_bot.edit_message_text(
                         chat_id=TELEGRAM_CHAT_ID,
-                        text=f"Impossible d'obtenir les données pour {symbol}"
+                        message_id=message.message_id,
+                        text=f"🔄 Analyse en cours pour {symbol}...\n\n"
+                             f"1. ✅ Données de marché récupérées\n"
+                             f"2. Analyse technique en cours..."
+                    )
+                    
+                    # Perform analysis with timeout
+                    analysis = self.analyze_with_gpt4(market_data["H1"], symbol)
+                    
+                    # Update progress - Chart Generation
+                    self.telegram_bot.edit_message_text(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        message_id=message.message_id,
+                        text=f"🔄 Analyse en cours pour {symbol}...\n\n"
+                             f"1. ✅ Données de marché récupérées\n"
+                             f"2. ✅ Analyse technique terminée\n"
+                             f"3. Génération du rapport et du graphique..."
+                    )
+                    
+                    # Send final analysis and delete progress message
+                    self.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
+                    self.telegram_bot.delete_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        message_id=message.message_id
+                    )
+                    
+                except Exception as e:
+                    logging.error(f"Error during analysis: {e}")
+                    self.telegram_bot.edit_message_text(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        message_id=message.message_id,
+                        text=f"❌ Erreur lors de l'analyse de {symbol}: {str(e)}"
                     )
                     
             elif command == "symbols":

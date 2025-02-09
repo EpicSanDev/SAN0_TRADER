@@ -17,12 +17,15 @@ class NewsAnalyzer:
     def get_news_for_symbol(self, symbol):
         """Récupère et analyse les news pour un symbole spécifique avec filtrage avancé"""
         try:
-            # Vérifier le cache avec une clé plus précise
-            cache_key = f"{symbol}_{datetime.now().strftime('%Y-%m-%d_%H_%M')}"
+            # Vérifier le cache avec une clé plus simple
+            cache_key = symbol
+            current_time = datetime.now()
+            
             if cache_key in self.cache:
                 cached_data = self.cache[cache_key]
-                # Vérifier si le cache est encore valide (moins de 15 minutes)
-                if (datetime.now() - datetime.strptime(cached_data.get('timestamp', ''), '%Y-%m-%d_%H_%M')).total_seconds() < 900:
+                cache_time = datetime.strptime(cached_data['timestamp'], '%Y-%m-%d_%H_%M')
+                # Utiliser 5 minutes de cache au lieu de 15
+                if (current_time - cache_time).total_seconds() < 300:
                     return cached_data['data']
             
             if symbol not in SYMBOL_NEWS_KEYWORDS:
@@ -42,17 +45,21 @@ class NewsAnalyzer:
                 'apiKey': self.api_key
             }
             
-            # Faire la requête avec retry
-            for attempt in range(3):
+            # Faire la requête avec timeout plus court et moins de retries
+            for attempt in range(2):
                 try:
-                    response = requests.get(self.base_url, params=params, timeout=10)
+                    response = requests.get(self.base_url, params=params, timeout=5)
                     response.raise_for_status()
                     news_data = response.json()
                     break
+                except requests.Timeout:
+                    logging.warning(f"Timeout lors de la requête NewsAPI pour {symbol}")
+                    return self._get_empty_news_result()
                 except Exception as e:
-                    if attempt == 2:
-                        raise
-                    time.sleep(1)
+                    if attempt == 1:
+                        logging.error(f"Erreur NewsAPI pour {symbol}: {str(e)}")
+                        return self._get_empty_news_result()
+                    time.sleep(0.5)
             
             if news_data['status'] != 'ok':
                 raise Exception(f"Erreur API: {news_data.get('message', 'Unknown error')}")
@@ -109,11 +116,16 @@ class NewsAnalyzer:
                 "confidence_score": self._calculate_confidence_score(num_articles, sentiment_counts)
             }
             
-            # Mise en cache avec timestamp
+            # Mise en cache avec timestamp simplifié
             self.cache[cache_key] = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d_%H_%M'),
+                'timestamp': current_time.strftime('%Y-%m-%d_%H_%M'),
                 'data': result
             }
+            
+            # Nettoyer le cache si trop grand
+            if len(self.cache) > 100:
+                oldest_key = min(self.cache.keys(), key=lambda k: datetime.strptime(self.cache[k]['timestamp'], '%Y-%m-%d_%H_%M'))
+                del self.cache[oldest_key]
             
             return result
             
