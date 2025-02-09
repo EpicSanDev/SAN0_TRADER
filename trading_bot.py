@@ -5,6 +5,9 @@ import requests
 import time
 import logging
 import telegram
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import io
 from datetime import datetime, timedelta
 from config import *
 from functools import lru_cache
@@ -925,6 +928,9 @@ Please analyze the data and provide a trading decision in this JSON format:
             print("Bot démarré... Appuyez sur Ctrl+C pour arrêter")
             logging.info("Bot démarré")
             
+            last_analysis_time = datetime.now()
+            ANALYSIS_INTERVAL = timedelta(hours=1)  # Envoyer une analyse toutes les heures
+            
             while True:
                 try:
                     if not self.check_market_conditions():
@@ -932,6 +938,19 @@ Please analyze the data and provide a trading decision in this JSON format:
                         logging.info(f"Marché fermé. Prochaine session dans {time_to_next} secondes")
                         time.sleep(min(time_to_next, 600))
                         continue
+
+                    # Envoyer une analyse périodique
+                    current_time = datetime.now()
+                    if current_time - last_analysis_time >= ANALYSIS_INTERVAL:
+                        for symbol in SYMBOLS:
+                            try:
+                                market_data = self.get_market_data_multi_timeframe(symbol)
+                                if market_data and "H1" in market_data:
+                                    analysis = self.analyze_with_gpt4(market_data["H1"], symbol)
+                                    self.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
+                            except Exception as e:
+                                logging.error(f"Erreur lors de l'analyse périodique de {symbol}: {e}")
+                        last_analysis_time = current_time
 
                     logging.info("Début du cycle de scan des marchés")
                     for symbol in SYMBOLS:
@@ -949,6 +968,8 @@ Please analyze the data and provide a trading decision in this JSON format:
                                 
                                 if analysis["confidence"] >= 75 and score >= MIN_SCORE_TO_TRADE:
                                     if self.validate_trade_conditions(analysis, symbol):
+                                        # Envoyer l'analyse sur Telegram avant de placer le trade
+                                        self.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
                                         self.place_trade(analysis["decision"], symbol, 
                                                        suggested_size=analysis.get("recommended_position_size"))
                                         logging.info(f"Signal de trading validé pour {symbol}")
@@ -1914,6 +1935,141 @@ Please analyze the data and provide a trading decision in this JSON format:
         except Exception as e:
             logging.error(f"Erreur lors de la configuration Telegram: {e}")
             self.telegram_bot = None
+
+    def generate_chart(self, df, symbol, patterns=None):
+        """Génère un graphique en chandelier japonais avec analyses techniques"""
+        try:
+            # Créer le graphique avec sous-graphiques
+            fig = make_subplots(rows=3, cols=1, 
+                              shared_xaxes=True,
+                              vertical_spacing=0.05,
+                              row_heights=[0.6, 0.2, 0.2])
+
+            # Graphique principal des chandeliers
+            candlestick = go.Candlestick(
+                x=df.index,
+                open=df['open'],
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                name='Candlesticks'
+            )
+            fig.add_trace(candlestick, row=1, col=1)
+
+            # Bandes de Bollinger
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], 
+                                   name='BB Upper', line=dict(color='gray', dash='dash')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_middle'], 
+                                   name='BB Middle', line=dict(color='gray')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], 
+                                   name='BB Lower', line=dict(color='gray', dash='dash')), row=1, col=1)
+
+            # Ichimoku Cloud
+            fig.add_trace(go.Scatter(x=df.index, y=df['Ichimoku_Tenkan'], 
+                                   name='Tenkan', line=dict(color='blue')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['Ichimoku_Kijun'], 
+                                   name='Kijun', line=dict(color='red')), row=1, col=1)
+
+            # Volume avec couleurs
+            colors = ['red' if close < open else 'green' 
+                     for close, open in zip(df['close'], df['open'])]
+            fig.add_trace(go.Bar(x=df.index, y=df['tick_volume'], 
+                               name='Volume', marker_color=colors), row=2, col=1)
+
+            # RSI
+            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], 
+                                   name='RSI', line=dict(color='purple')), row=3, col=1)
+            fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+
+            # Mise en page
+            fig.update_layout(
+                title=f'{symbol} Analysis Chart',
+                yaxis_title="Price",
+                yaxis2_title="Volume",
+                yaxis3_title="RSI",
+                xaxis_rangeslider_visible=False,
+                height=800
+            )
+
+            # Ajouter les patterns si présents
+            if patterns:
+                for pattern in patterns:
+                    fig.add_annotation(
+                        x=df.index[-1],
+                        y=df['high'].iloc[-1],
+                        text=f"{pattern.name} ({pattern.significance}/10)",
+                        showarrow=True,
+                        arrowhead=1
+                    )
+
+            # Sauvegarder en PNG
+            img_bytes = io.BytesIO()
+            fig.write_image(img_bytes, format='png')
+            img_bytes.seek(0)
+            return img_bytes
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la génération du graphique: {e}")
+            return None
+
+    def send_analysis_to_telegram(self, symbol, analysis, market_data):
+        """Envoie l'analyse avec graphique sur Telegram"""
+        try:
+            if not self.telegram_bot:
+                return
+
+            # Générer le message d'analyse
+            message = f"📊 *{symbol} Analysis*\n\n"
+            
+            # Décision et confiance
+            message += f"*Decision:* {analysis['decision']}\n"
+            message += f"*Confidence:* {analysis['confidence']}%\n\n"
+            
+            # Contexte de marché
+            market_context = analysis.get('market_context', {})
+            message += "*Market Context:*\n"
+            message += f"- Trend Strength: {market_context.get('trend_strength', 0)}%\n"
+            message += f"- Volatility: {market_context.get('volatility_rating', 'N/A')}\n"
+            message += f"- Conditions: {market_context.get('trading_conditions', 'N/A')}\n\n"
+            
+            # Patterns détectés
+            patterns = self.pattern_recognizer.analyze_candle_patterns(market_data)
+            if patterns:
+                message += "*Patterns Detected:*\n"
+                for pattern in patterns:
+                    message += f"- {pattern}\n"
+                message += "\n"
+            
+            # Niveaux clés
+            if 'analysis' in analysis and 'market_structure' in analysis['analysis']:
+                key_levels = analysis['analysis']['market_structure'].get('key_levels', {})
+                if key_levels:
+                    message += "*Key Levels:*\n"
+                    if 'support' in key_levels:
+                        message += f"Support: {', '.join(map(str, key_levels['support']))}\n"
+                    if 'resistance' in key_levels:
+                        message += f"Resistance: {', '.join(map(str, key_levels['resistance']))}\n"
+                    message += "\n"
+
+            # Générer et envoyer le graphique
+            chart_img = self.generate_chart(market_data, symbol, patterns)
+            if chart_img:
+                self.telegram_bot.send_photo(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    photo=chart_img,
+                    caption=message,
+                    parse_mode='Markdown'
+                )
+            else:
+                self.telegram_bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+
+        except Exception as e:
+            logging.error(f"Erreur lors de l'envoi de l'analyse sur Telegram: {e}")
 
     def load_or_train_model(self):
         """Charge ou entraîne le modèle de trading"""

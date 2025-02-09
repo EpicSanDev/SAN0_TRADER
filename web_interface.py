@@ -636,6 +636,25 @@ def performance():
             'trade_counts': []
         })
 
+@app.route('/api/analyze/<symbol>', methods=['POST'])
+def analyze_symbol(symbol):
+    """API pour déclencher une analyse sur demande"""
+    try:
+        if symbol not in SYMBOLS:
+            return jsonify({"error": f"Symbol {symbol} not found"}), 404
+            
+        # Get market data and perform analysis
+        market_data = trading_bot.get_market_data_multi_timeframe(symbol)
+        if market_data and "H1" in market_data:
+            analysis = trading_bot.analyze_with_gpt4(market_data["H1"], symbol)
+            trading_bot.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
+            return jsonify({"success": True, "message": f"Analysis sent for {symbol}"})
+        else:
+            return jsonify({"error": "Could not get market data"}), 500
+    except Exception as e:
+        logging.error(f"Error during analysis request: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/alerts')
 def alerts():
     """API pour les alertes et notifications"""
