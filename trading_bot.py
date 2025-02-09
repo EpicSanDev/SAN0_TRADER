@@ -1928,6 +1928,14 @@ Please analyze the data and provide a trading decision in this JSON format:
         try:
             if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
                 self.telegram_bot = telegram.Bot(token=TELEGRAM_TOKEN)
+                # Setup command handlers
+                self.telegram_bot.set_my_commands([
+                    ("analyze", "Analyser un symbole (ex: /analyze EURUSD)"),
+                    ("symbols", "Liste des symboles disponibles"),
+                    ("help", "Afficher l'aide")
+                ])
+                # Start message handler
+                self.start_telegram_handler()
                 logging.info("Bot Telegram initialisé")
             else:
                 self.telegram_bot = None
@@ -1935,6 +1943,79 @@ Please analyze the data and provide a trading decision in this JSON format:
         except Exception as e:
             logging.error(f"Erreur lors de la configuration Telegram: {e}")
             self.telegram_bot = None
+
+    def start_telegram_handler(self):
+        """Démarre le gestionnaire de messages Telegram"""
+        try:
+            from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+            
+            updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+            dispatcher = updater.dispatcher
+            
+            # Add command handlers
+            dispatcher.add_handler(CommandHandler("analyze", self.handle_analyze_command))
+            dispatcher.add_handler(CommandHandler("symbols", self.handle_symbols_command))
+            dispatcher.add_handler(CommandHandler("help", self.handle_help_command))
+            
+            # Start the bot
+            updater.start_polling()
+            logging.info("Gestionnaire de messages Telegram démarré")
+            
+        except Exception as e:
+            logging.error(f"Erreur lors du démarrage du gestionnaire Telegram: {e}")
+
+    def handle_analyze_command(self, update, context):
+        """Gère la commande /analyze"""
+        try:
+            if not context.args:
+                update.message.reply_text("Usage: /analyze SYMBOL (ex: /analyze EURUSD)")
+                return
+                
+            symbol = context.args[0].upper()
+            if symbol not in SYMBOLS:
+                update.message.reply_text(f"Symbole non reconnu: {symbol}\nUtilisez /symbols pour voir la liste des symboles disponibles")
+                return
+                
+            update.message.reply_text(f"Analyse en cours pour {symbol}...")
+            
+            # Get market data and perform analysis
+            market_data = self.get_market_data_multi_timeframe(symbol)
+            if market_data and "H1" in market_data:
+                analysis = self.analyze_with_gpt4(market_data["H1"], symbol)
+                self.send_analysis_to_telegram(symbol, analysis, market_data["H1"])
+            else:
+                update.message.reply_text(f"Impossible d'obtenir les données pour {symbol}")
+                
+        except Exception as e:
+            logging.error(f"Erreur lors de l'analyse via Telegram: {e}")
+            update.message.reply_text("Une erreur s'est produite lors de l'analyse")
+
+    def handle_symbols_command(self, update, context):
+        """Gère la commande /symbols"""
+        try:
+            symbols_list = "\n".join(SYMBOLS)
+            update.message.reply_text(f"Symboles disponibles:\n{symbols_list}")
+        except Exception as e:
+            logging.error(f"Erreur lors de l'affichage des symboles: {e}")
+            update.message.reply_text("Une erreur s'est produite")
+
+    def handle_help_command(self, update, context):
+        """Gère la commande /help"""
+        try:
+            help_text = """
+Commandes disponibles:
+
+/analyze SYMBOL - Analyser un symbole
+Exemple: /analyze EURUSD
+
+/symbols - Voir la liste des symboles disponibles
+
+/help - Afficher ce message d'aide
+"""
+            update.message.reply_text(help_text)
+        except Exception as e:
+            logging.error(f"Erreur lors de l'affichage de l'aide: {e}")
+            update.message.reply_text("Une erreur s'est produite")
 
     def generate_chart(self, df, symbol, patterns=None):
         """Génère un graphique en chandelier japonais avec analyses techniques"""
