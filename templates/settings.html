@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Settings - Trading Bot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        .form-section {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+        }
+        .form-section h3 {
+            margin-bottom: 1rem;
+        }
+        .settings-nav {
+            position: sticky;
+            top: 1rem;
+        }
+        .nav-link {
+            color: #495057;
+        }
+        .nav-link.active {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row">
+            <!-- Navigation sidebar -->
+            <div class="col-md-3">
+                <div class="settings-nav">
+                    <h4>Navigation</h4>
+                    <div class="nav flex-column nav-pills">
+                        <a class="nav-link active" href="#trading-params">Paramètres de Trading</a>
+                        <a class="nav-link" href="#risk-management">Gestion des Risques</a>
+                        <a class="nav-link" href="#technical-indicators">Indicateurs Techniques</a>
+                        <a class="nav-link" href="#market-filters">Filtres de Marché</a>
+                        <a class="nav-link" href="#trading-strategy">Stratégie de Trading</a>
+                    </div>
+                    <div class="mt-3">
+                        <a href="/" class="btn btn-secondary w-100">Retour au Dashboard</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings form -->
+            <div class="col-md-9">
+                <h2 class="mb-4">Configuration du Bot</h2>
+                <form id="settings-form">
+                    <!-- Trading Parameters -->
+                    <div id="trading-params" class="form-section">
+                        <h3>Paramètres de Trading</h3>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Taille du Lot</label>
+                                <input type="number" class="form-control" name="LOT_SIZE" step="0.01" min="0.01">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Stop Loss (pips)</label>
+                                <input type="number" class="form-control" name="STOP_LOSS_PIPS" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Take Profit (pips)</label>
+                                <input type="number" class="form-control" name="TAKE_PROFIT_PIPS" min="1">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Timeframe Principal</label>
+                                <select class="form-select" name="TIMEFRAME">
+                                    <option value="M1">M1</option>
+                                    <option value="M5">M5</option>
+                                    <option value="M15">M15</option>
+                                    <option value="M30">M30</option>
+                                    <option value="H1">H1</option>
+                                    <option value="H4">H4</option>
+                                    <option value="D1">D1</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Slippage Maximum (points)</label>
+                                <input type="number" class="form-control" name="SLIPPAGE" min="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Risk Management -->
+                    <div id="risk-management" class="form-section">
+                        <h3>Gestion des Risques</h3>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Risque Maximum par Trade (%)</label>
+                                <input type="number" class="form-control" name="MAX_RISK_PERCENT" step="0.1" min="0.1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Perte Maximale Journalière (%)</label>
+                                <input type="number" class="form-control" name="MAX_DAILY_LOSS" step="0.1" min="0.1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Trades Maximum par Jour</label>
+                                <input type="number" class="form-control" name="MAX_TRADES_PER_DAY" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Drawdown Maximum (%)</label>
+                                <input type="number" class="form-control" name="MAX_DRAWDOWN_PERCENT" step="0.1" min="0.1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Objectif Journalier (%)</label>
+                                <input type="number" class="form-control" name="DAILY_TARGET_PERCENT" step="0.1" min="0.1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Objectif Hebdomadaire (%)</label>
+                                <input type="number" class="form-control" name="WEEKLY_TARGET_PERCENT" step="0.1" min="0.1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div id="technical-indicators" class="form-section">
+                        <h3>Indicateurs Techniques</h3>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Période RSI</label>
+                                <input type="number" class="form-control" name="RSI_PERIOD" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">MACD Rapide</label>
+                                <input type="number" class="form-control" name="MACD_FAST" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">MACD Lent</label>
+                                <input type="number" class="form-control" name="MACD_SLOW" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">MACD Signal</label>
+                                <input type="number" class="form-control" name="MACD_SIGNAL" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Période MA</label>
+                                <input type="number" class="form-control" name="MA_PERIOD" min="1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Market Filters -->
+                    <div id="market-filters" class="form-section">
+                        <h3>Filtres de Marché</h3>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Spread Maximum (pips)</label>
+                                <input type="number" class="form-control" name="max_spread_pips" min="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Volume Minimum</label>
+                                <input type="number" class="form-control" name="min_volume_threshold" min="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Force Minimale de Tendance</label>
+                                <input type="number" class="form-control" name="min_trend_strength" min="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Corrélation Minimum</label>
+                                <input type="number" class="form-control" name="min_correlation" step="0.1" min="0" max="1">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="VOLATILITY_FILTER">
+                                    <label class="form-check-label">Filtre de Volatilité</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="NEWS_FILTER">
+                                    <label class="form-check-label">Filtre d'Actualités</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trading Strategy -->
+                    <div id="trading-strategy" class="form-section">
+                        <h3>Stratégie de Trading</h3>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Score Minimum pour Trader</label>
+                                <input type="number" class="form-control" name="MIN_SCORE_TO_TRADE" step="0.1" min="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Seuil de Volatilité</label>
+                                <input type="number" class="form-control" name="VOLATILITY_THRESHOLD" step="0.1" min="0">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="USE_AUTO_TPSL">
+                                    <label class="form-check-label">TP/SL Automatique</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="USE_TRAILING_STOP">
+                                    <label class="form-check-label">Trailing Stop</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary">Sauvegarder les Paramètres</button>
+                        <button type="button" class="btn btn-secondary ms-2" id="reset-defaults">Réinitialiser</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            // Load current settings
+            $.get('/api/settings', function(data) {
+                Object.entries(data).forEach(([key, value]) => {
+                    const input = $(`[name="${key}"]`);
+                    if (input.length) {
+                        if (input.attr('type') === 'checkbox') {
+                            input.prop('checked', value);
+                        } else {
+                            input.val(value);
+                        }
+                    }
+                });
+            });
+
+            // Smooth scroll for navigation
+            $('.nav-link').click(function(e) {
+                e.preventDefault();
+                const target = $($(this).attr('href'));
+                $('html, body').animate({
+                    scrollTop: target.offset().top - 20
+                }, 500);
+                $('.nav-link').removeClass('active');
+                $(this).addClass('active');
+            });
+
+            // Update active nav item on scroll
+            $(window).scroll(function() {
+                let currentSection = '';
+                $('.form-section').each(function() {
+                    const sectionTop = $(this).offset().top - 100;
+                    if ($(window).scrollTop() >= sectionTop) {
+                        currentSection = '#' + $(this).attr('id');
+                    }
+                });
+                $('.nav-link').removeClass('active');
+                $(`.nav-link[href="${currentSection}"]`).addClass('active');
+            });
+
+            // Handle form submission
+            $('#settings-form').submit(function(e) {
+                e.preventDefault();
+                const formData = {};
+                $(this).serializeArray().forEach(item => {
+                    formData[item.name] = item.value;
+                });
+                
+                // Add checkbox values
+                $(this).find('input[type="checkbox"]').each(function() {
+                    formData[this.name] = this.checked;
+                });
+
+                $.ajax({
+                    url: '/api/settings',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(formData),
+                    success: function(response) {
+                        alert('Paramètres sauvegardés avec succès!');
+                    },
+                    error: function() {
+                        alert('Erreur lors de la sauvegarde des paramètres');
+                    }
+                });
+            });
+
+            // Handle reset to defaults
+            $('#reset-defaults').click(function() {
+                if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres?')) {
+                    $.post('/api/settings/reset', function() {
+                        location.reload();
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

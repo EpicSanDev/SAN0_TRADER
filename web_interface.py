@@ -1,4 +1,7 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for
+import json
+import os
+from flask_socketio import SocketIO, emit
 import MetaTrader5 as mt5
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,8 +12,22 @@ import numpy as np
 from config import *
 import json
 import logging
+from trading_bot import GPTTradingBot
 
+# Initialize Flask app and global variables
 app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Store chat messages and initialize bot
+chat_messages = []
+trading_bot = GPTTradingBot()
+
+# Initialize MT5 connection
+if not mt5.initialize():
+    print("Erreur d'initialisation MT5")
+    mt5.shutdown()
+else:
+    print("MT5 initialisé avec succès")
 
 def get_market_data_multi_timeframe(symbol):
     """Récupère les données de marché pour différentes timeframes"""
@@ -92,7 +109,6 @@ def detect_trend(df):
     except Exception as e:
         logging.error(f"Erreur lors de la détection de tendance: {e}")
         return "NEUTRAL"
-
 
 def get_account_info():
     """Récupère les informations du compte"""
@@ -346,6 +362,105 @@ def index():
     """Page d'accueil du tableau de bord"""
     return render_template('index.html')
 
+@app.route('/settings')
+def settings():
+    """Page de configuration du bot"""
+    return render_template('settings.html')
+
+def save_config(config_data):
+    """Sauvegarde la configuration dans config.py"""
+    config_path = 'config.py'
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config_content = f.read()
+    
+    # Mettre à jour chaque paramètre
+    for key, value in config_data.items():
+        # Convertir les valeurs en format Python
+        if isinstance(value, bool):
+            value_str = str(value)
+        elif isinstance(value, str):
+            value_str = f'"{value}"'
+        else:
+            value_str = str(value)
+        
+        # Remplacer la valeur dans le fichier
+        import re
+        pattern = fr'^{key}\s*=.*$'
+        replacement = f'{key} = {value_str}'
+        config_content = re.sub(pattern, replacement, config_content, flags=re.MULTILINE)
+    
+    # Sauvegarder le fichier
+    with open(config_path, 'w', encoding='utf-8') as f:
+        f.write(config_content)
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Récupère les paramètres actuels"""
+    try:
+        # Lire les paramètres depuis config.py
+        settings = {
+            'LOT_SIZE': LOT_SIZE,
+            'STOP_LOSS_PIPS': STOP_LOSS_PIPS,
+            'TAKE_PROFIT_PIPS': TAKE_PROFIT_PIPS,
+            'TIMEFRAME': TIMEFRAME,
+            'SLIPPAGE': SLIPPAGE,
+            'MAX_RISK_PERCENT': MAX_RISK_PERCENT,
+            'MAX_DAILY_LOSS': MAX_DAILY_LOSS,
+            'MAX_TRADES_PER_DAY': MAX_TRADES_PER_DAY,
+            'MAX_DRAWDOWN_PERCENT': RISK_MANAGEMENT['MAX_DRAWDOWN_PERCENT'],
+            'DAILY_TARGET_PERCENT': RISK_MANAGEMENT['DAILY_TARGET_PERCENT'],
+            'WEEKLY_TARGET_PERCENT': RISK_MANAGEMENT['WEEKLY_TARGET_PERCENT'],
+            'RSI_PERIOD': RSI_PERIOD,
+            'MACD_FAST': MACD_FAST,
+            'MACD_SLOW': MACD_SLOW,
+            'MACD_SIGNAL': MACD_SIGNAL,
+            'MA_PERIOD': MA_PERIOD,
+            'max_spread_pips': MARKET_FILTERS['SPREAD_FILTER']['max_spread_pips'],
+            'min_volume_threshold': MARKET_FILTERS['VOLUME_FILTER']['min_volume_threshold'],
+            'min_trend_strength': MARKET_FILTERS['TREND_FILTER']['min_trend_strength'],
+            'min_correlation': MARKET_FILTERS['CORRELATION_FILTER']['min_correlation'],
+            'VOLATILITY_FILTER': MARKET_FILTERS['VOLATILITY_FILTER'],
+            'NEWS_FILTER': MARKET_FILTERS['NEWS_FILTER'],
+            'MIN_SCORE_TO_TRADE': MIN_SCORE_TO_TRADE,
+            'VOLATILITY_THRESHOLD': VOLATILITY_THRESHOLD,
+            'USE_AUTO_TPSL': USE_AUTO_TPSL,
+            'USE_TRAILING_STOP': USE_TRAILING_STOP
+        }
+        return jsonify(settings)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings():
+    """Met à jour les paramètres"""
+    try:
+        data = request.get_json()
+        
+        # Convertir les valeurs numériques
+        for key in data:
+            if key not in ['TIMEFRAME', 'VOLATILITY_FILTER', 'NEWS_FILTER', 'USE_AUTO_TPSL', 'USE_TRAILING_STOP']:
+                try:
+                    data[key] = float(data[key])
+                except ValueError:
+                    pass
+        
+        save_config(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/settings/reset', methods=['POST'])
+def reset_settings():
+    """Réinitialise les paramètres aux valeurs par défaut"""
+    try:
+        # Copier config.template.py vers config.py
+        with open('config.template.py', 'r', encoding='utf-8') as source:
+            with open('config.py', 'w', encoding='utf-8') as dest:
+                dest.write(source.read())
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/account')
 def account_info():
     """API pour les informations du compte"""
@@ -573,8 +688,124 @@ def history():
     """API pour l'historique des trades"""
     return jsonify(get_trade_history())
 
+# WebSocket Events
+@socketio.on('connect')
+def handle_connect():
+    """Client WebSocket connection handler"""
+    emit('chat_history', chat_messages)
+
+@socketio.on('chat_message')
+def handle_message(data):
+    """Handle incoming chat messages"""
+    try:
+        user_message = {
+            'user': data.get('user', 'Anonymous'),
+            'message': data.get('message', ''),
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        }
+        chat_messages.append(user_message)
+        emit('chat_message', user_message, broadcast=True)
+        
+        # Check MT5 connection
+        if not mt5.initialize():
+            error_message = {
+                'user': 'System',
+                'message': "Connexion à MetaTrader 5 impossible. Veuillez vérifier que MT5 est en cours d'exécution.",
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
+            chat_messages.append(error_message)
+            emit('chat_message', error_message, broadcast=True)
+            return
+        
+        # Generate bot response
+        try:
+            # Select EURUSD symbol
+            if not mt5.symbol_select("EURUSD", True):
+                error_message = {
+                    'user': 'System',
+                    'message': "Impossible de sélectionner EURUSD. Veuillez vérifier vos symboles disponibles.",
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                chat_messages.append(error_message)
+                emit('chat_message', error_message, broadcast=True)
+                return
+            
+            # Get market data
+            market_data = get_market_data_multi_timeframe("EURUSD")
+            if market_data and "H1" in market_data:
+                df = market_data["H1"]
+                trend = detect_trend(df)
+                volatility = calculate_volatility(df)
+                
+                bot_message = {
+                    'user': 'System',
+                    'message': f"Analyse du marché EURUSD:\n" +
+                              f"• Tendance: {trend}\n" +
+                              f"• Volatilité: {volatility}%\n" +
+                              f"• Prix actuel: {df['close'].iloc[-1]:.5f}",
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                
+                chat_messages.append(bot_message)
+                if len(chat_messages) > 100:  # Keep only last 100 messages
+                    chat_messages = chat_messages[-100:]
+                    
+                # Emit both messages
+                emit('chat_message', user_message, broadcast=True)
+                emit('chat_message', bot_message, broadcast=True)
+            else:
+                error_message = {
+                    'user': 'System',
+                    'message': "Désolé, je ne peux pas obtenir les données du marché pour le moment.",
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                chat_messages.append(error_message)
+                emit('chat_message', user_message, broadcast=True)
+                emit('chat_message', error_message, broadcast=True)
+                
+        except Exception as e:
+            error_message = {
+                'user': 'System',
+                'message': "Désolé, une erreur s'est produite lors de l'analyse.",
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
+            chat_messages.append(error_message)
+            emit('chat_message', user_message, broadcast=True)
+            emit('chat_message', error_message, broadcast=True)
+            logging.error(f"Erreur lors de l'analyse: {e}")
+            
+    except Exception as e:
+        logging.error(f"Erreur lors du traitement du message: {e}")
+
+@socketio.on('request_analysis')
+def handle_analysis_request(data):
+    """Handle trading analysis requests"""
+    try:
+        symbol = data.get('symbol')
+        if not symbol:
+            return
+            
+        # Get market data
+        market_data = get_market_data_multi_timeframe(symbol)
+        if not market_data or "H1" not in market_data:
+            emit('analysis_response', {'error': f'Données non disponibles pour {symbol}'})
+            return
+            
+        # Create trading bot instance for analysis
+        analysis = trading_bot.analyze_with_ollama(market_data, symbol)
+        
+        # Send analysis back to client
+        emit('analysis_response', {
+            'symbol': symbol,
+            'analysis': analysis,
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        })
+    except Exception as e:
+        logging.error(f"Erreur lors de l'analyse: {e}")
+        emit('analysis_response', {'error': str(e)})
+
 if __name__ == '__main__':
     if not mt5.initialize():
         print("Erreur d'initialisation MT5")
     else:
-        app.run(debug=True, port=5000)
+        socketio.run(app, debug=True, port=5000)
