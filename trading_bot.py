@@ -2190,7 +2190,7 @@ Exemple: /analyze EURUSD
             if not self.telegram_bot:
                 return
 
-            # Générer le message d'analyse
+            # Envoyer d'abord le message texte
             message = f"📊 *{symbol} Analysis*\n\n"
             
             # Décision et confiance
@@ -2223,24 +2223,57 @@ Exemple: /analyze EURUSD
                         message += f"Resistance: {', '.join(map(str, key_levels['resistance']))}\n"
                     message += "\n"
 
-            # Générer et envoyer le graphique
-            chart_img = self.generate_chart(market_data, symbol, patterns)
-            if chart_img:
-                self.telegram_bot.send_photo(
+            # Envoyer d'abord le message texte
+            text_message = self.telegram_bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=message,
+                parse_mode='Markdown'
+            )
+
+            try:
+                # Générer le graphique avec un message de statut
+                status_message = self.telegram_bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
-                    photo=chart_img,
-                    caption=message,
-                    parse_mode='Markdown'
+                    text="🔄 Génération du graphique en cours..."
                 )
-            else:
+
+                # Tentative de génération du graphique
+                chart_img = self.generate_chart(market_data, symbol, patterns)
+                
+                if chart_img:
+                    # Envoyer le graphique
+                    self.telegram_bot.send_photo(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        photo=chart_img,
+                        caption=f"📈 Graphique pour {symbol}"
+                    )
+                else:
+                    self.telegram_bot.send_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        text="⚠️ Impossible de générer le graphique"
+                    )
+            except Exception as chart_error:
+                logging.error(f"Erreur lors de la génération du graphique: {chart_error}")
                 self.telegram_bot.send_message(
                     chat_id=TELEGRAM_CHAT_ID,
-                    text=message,
-                    parse_mode='Markdown'
+                    text="❌ Erreur lors de la génération du graphique"
                 )
+            finally:
+                # Supprimer le message de statut
+                try:
+                    self.telegram_bot.delete_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        message_id=status_message.message_id
+                    )
+                except:
+                    pass
 
         except Exception as e:
             logging.error(f"Erreur lors de l'envoi de l'analyse sur Telegram: {e}")
+            self.telegram_bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=f"❌ Erreur lors de l'analyse: {str(e)}"
+            )
 
     def load_or_train_model(self):
         """Charge ou entraîne le modèle de trading"""
