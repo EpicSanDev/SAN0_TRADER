@@ -1506,15 +1506,27 @@ Please analyze the data and provide a trading decision in this JSON format:
         """Analyse le profil de volume"""
         try:
             # Calculer la distribution du volume par niveau de prix
-            price_levels = pd.qcut(df['close'], q=10)
-            volume_profile = df.groupby(price_levels)['tick_volume'].sum()
+            price_min = df['close'].min()
+            price_max = df['close'].max()
+            price_range = price_max - price_min
+            bin_size = price_range / 10
+            
+            # Créer des bins personnalisés
+            bins = [price_min + (i * bin_size) for i in range(11)]
+            labels = [f"{bins[i]:.5f}-{bins[i+1]:.5f}" for i in range(10)]
+            
+            # Calculer la distribution du volume
+            df['price_bin'] = pd.cut(df['close'], bins=bins, labels=labels)
+            volume_profile = df.groupby('price_bin')['tick_volume'].sum()
             
             # Identifier les niveaux de prix à fort volume
-            high_volume_levels = volume_profile[volume_profile > volume_profile.mean()]
+            mean_volume = volume_profile.mean()
+            high_volume_levels = volume_profile[volume_profile > mean_volume]
             
-            # Convertir les Interval objects en strings pour la sérialisation JSON
-            volume_distribution = {str(k): v for k, v in volume_profile.to_dict().items()}
-            high_volume_list = [float(x.mid) for x in high_volume_levels.index]
+            # Convertir en format JSON sérialisable
+            volume_distribution = volume_profile.to_dict()
+            high_volume_list = [(float(level.split('-')[0]) + float(level.split('-')[1])) / 2 
+                              for level in high_volume_levels.index]
             
             return {
                 "high_volume_levels": high_volume_list,
@@ -1695,7 +1707,9 @@ Please analyze the data and provide a trading decision in this JSON format:
             elif isinstance(obj, (datetime, pd.Timestamp)):
                 return obj.isoformat()
             elif isinstance(obj, pd.Interval):
-                return str(obj)
+                return f"{float(obj.left):.5f}-{float(obj.right):.5f}"
+            elif isinstance(obj, pd.IntervalIndex):
+                return [f"{float(interval.left):.5f}-{float(interval.right):.5f}" for interval in obj]
             elif isinstance(obj, dict):
                 return {str(self.convert_to_json_serializable(key)): self.convert_to_json_serializable(value) 
                         for key, value in obj.items()}
@@ -2110,11 +2124,14 @@ Exemple: /analyze EURUSD
     def generate_chart(self, df, symbol, patterns=None):
         """Génère un graphique en chandelier japonais avec analyses techniques"""
         try:
+            # Réduire la taille des données pour améliorer les performances
+            df = df.tail(100)  # Utiliser seulement les 100 dernières bougies
+            
             # Créer le graphique avec sous-graphiques
-            fig = make_subplots(rows=3, cols=1, 
+            fig = make_subplots(rows=2, cols=1,  # Réduit à 2 sous-graphiques au lieu de 3
                               shared_xaxes=True,
                               vertical_spacing=0.05,
-                              row_heights=[0.6, 0.2, 0.2])
+                              row_heights=[0.7, 0.3])
 
             # Graphique principal des chandeliers
             candlestick = go.Candlestick(
@@ -2127,19 +2144,11 @@ Exemple: /analyze EURUSD
             )
             fig.add_trace(candlestick, row=1, col=1)
 
-            # Bandes de Bollinger
+            # Bandes de Bollinger (seulement les principales)
             fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], 
                                    name='BB Upper', line=dict(color='gray', dash='dash')), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['BB_middle'], 
-                                   name='BB Middle', line=dict(color='gray')), row=1, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], 
                                    name='BB Lower', line=dict(color='gray', dash='dash')), row=1, col=1)
-
-            # Ichimoku Cloud
-            fig.add_trace(go.Scatter(x=df.index, y=df['Ichimoku_Tenkan'], 
-                                   name='Tenkan', line=dict(color='blue')), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['Ichimoku_Kijun'], 
-                                   name='Kijun', line=dict(color='red')), row=1, col=1)
 
             # Volume avec couleurs
             colors = ['red' if close < open else 'green' 
@@ -2147,36 +2156,30 @@ Exemple: /analyze EURUSD
             fig.add_trace(go.Bar(x=df.index, y=df['tick_volume'], 
                                name='Volume', marker_color=colors), row=2, col=1)
 
-            # RSI
-            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], 
-                                   name='RSI', line=dict(color='purple')), row=3, col=1)
-            fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
-            fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
-
-            # Mise en page
+            # Mise en page simplifiée
             fig.update_layout(
                 title=f'{symbol} Analysis Chart',
-                yaxis_title="Price",
-                yaxis2_title="Volume",
-                yaxis3_title="RSI",
+                showlegend=False,  # Masquer la légende pour réduire la complexité
                 xaxis_rangeslider_visible=False,
-                height=800
+                height=600,  # Réduire la hauteur
+                width=800,   # Définir une largeur fixe
+                template='plotly_white'  # Utiliser un template plus léger
             )
 
-            # Ajouter les patterns si présents
+            # Ajouter les patterns si présents (limité aux 3 plus récents)
             if patterns:
-                for pattern in patterns:
+                for pattern in patterns[:3]:  # Limiter à 3 patterns
                     fig.add_annotation(
                         x=df.index[-1],
                         y=df['high'].iloc[-1],
-                        text=f"{pattern.name} ({pattern.significance}/10)",
+                        text=f"{pattern.name}",  # Simplifier le texte
                         showarrow=True,
                         arrowhead=1
                     )
 
-            # Sauvegarder en PNG
+            # Sauvegarder en PNG avec un timeout
             img_bytes = io.BytesIO()
-            fig.write_image(img_bytes, format='png')
+            fig.write_image(img_bytes, format='png', engine='kaleido', scale=1.0)  # Réduire l'échelle
             img_bytes.seek(0)
             return img_bytes
 
